@@ -224,24 +224,18 @@ Physical Buttons (Connect to Ground)
 
 ### Quick Installation
 
-1. **Clone the repository:**
+1. **Clone the repository** (any directory works):
 ```bash
-cd /home/tech
-git clone https://github.com/yourusername/8-relay.git
-cd 8-relay
+git clone https://github.com/SethMorrowSoftware/Eight-Relay-Controller.git
+cd Eight-Relay-Controller
 ```
 
 2. **Run the setup script:**
 ```bash
-chmod +x setup.sh
-sudo bash setup.sh
+sudo ./setup.sh
 ```
 
-3. **Optional: Install audio support:**
-```bash
-chmod +x setup-audio.sh
-sudo bash setup-audio.sh
-```
+The script installs everything (including audio support) and sets up the service to run from the directory you cloned into, as the user who ran `sudo`. Use `sudo ./setup.sh -y` to accept every prompt, or `sudo RELAY_USER=name ./setup.sh` to run the service as a different user. It is safe to run again, for example after a `git pull`.
 
 ### Manual Installation
 
@@ -261,15 +255,16 @@ source venv/bin/activate
 
 3. **Install Python packages:**
 ```bash
-pip install flask gunicorn RPi.GPIO pygame
+pip install flask RPi.GPIO pygame
 ```
+On a Raspberry Pi 5, install `rpi-lgpio` instead of `RPi.GPIO` (RPi.GPIO does not support the Pi 5).
 
 4. **Set up permissions:**
 ```bash
 sudo usermod -a -G gpio,audio $USER
 ```
 
-5. **Create systemd service:**
+5. **Create systemd service** (edit `User`, `Group` and the paths in `relay-control.service` to match your user and checkout first):
 ```bash
 sudo cp relay-control.service /etc/systemd/system/
 sudo systemctl enable relay-control
@@ -432,14 +427,15 @@ Open a web browser and navigate to:
 
 ```bash
 # Test all systems
-cd /home/tech/8-relay
-sudo python3 test_system.py
+# (stop the service first, the tests use the same GPIO pins)
+cd ~/Eight-Relay-Controller
+sudo venv/bin/python test_system.py
 
 # Test GPIO only
-sudo python3 test_gpio.py
+sudo venv/bin/python test_gpio.py
 
 # Test audio only
-python3 test_audio.py
+venv/bin/python test_audio.py
 ```
 
 ---
@@ -883,7 +879,7 @@ logout
    ```
 4. Check file permissions:
    ```bash
-   ls -la /home/tech/8-relay/audio/
+   ls -la ~/Eight-Relay-Controller/audio/
    ```
 5. Ensure audio files are in supported format
 
@@ -937,15 +933,15 @@ logout
 2. Verify Python path:
    ```bash
    which python3
-   ls -la /home/tech/8-relay/venv/bin/python
+   ls -la ~/Eight-Relay-Controller/venv/bin/python
    ```
 3. Check file permissions:
    ```bash
-   ls -la /home/tech/8-relay/app.py
+   ls -la ~/Eight-Relay-Controller/app.py
    ```
 4. Run manually to see errors:
    ```bash
-   cd /home/tech/8-relay
+   cd ~/Eight-Relay-Controller
    source venv/bin/activate
    python app.py
    ```
@@ -1119,11 +1115,11 @@ To access from outside your network:
 ### Project Structure
 
 ```
-8-relay/
+Eight-Relay-Controller/
 ├── app.py              # Main Flask application
 ├── config.json         # Configuration file
 ├── setup.sh            # Installation script
-├── setup-audio.sh      # Audio setup script
+├── relay-control.service  # Reference systemd unit (setup.sh generates the real one)
 ├── templates/
 │   ├── index.html      # Main control panel
 │   └── admin.html      # Admin dashboard
@@ -1196,7 +1192,7 @@ Monitor system performance:
 
 ```bash
 # CPU usage
-top -u tech
+top -u $USER
 
 # Memory usage
 free -h
@@ -1285,10 +1281,10 @@ vcgencmd get_throttled
 cp config.json config_backup_$(date +%Y%m%d_%H%M%S).json
 
 # Backup entire project
-tar -czf 8relay_backup_$(date +%Y%m%d).tar.gz /home/tech/8-relay/
+tar -czf 8relay_backup_$(date +%Y%m%d).tar.gz ~/Eight-Relay-Controller/
 
 # Backup to external drive
-rsync -av /home/tech/8-relay/ /media/usb/8relay_backup/
+rsync -av ~/Eight-Relay-Controller/ /media/usb/8relay_backup/
 ```
 
 ### System Recovery
@@ -1318,7 +1314,7 @@ If the system fails:
 
 3. **Complete reinstall:**
    ```bash
-   cd /home/tech/8-relay
+   cd ~/Eight-Relay-Controller
    sudo bash setup.sh
    ```
 
