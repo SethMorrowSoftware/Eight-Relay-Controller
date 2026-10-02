@@ -658,19 +658,26 @@ The system implements software debouncing to prevent false triggers:
 
 ## Audio System
 
+### Uploading Sounds
+
+Sounds are managed from the web interface; no file copying or restarts needed:
+
+1. Open the admin dashboard and go to the **Sounds** tab (or click **🔊 Manage Sounds** on the control panel).
+2. Drag sound files onto **Sound Library**, or click **Choose sound files**. This works from a phone too.
+3. Pick a sound for each audio button from its **Sound** list, or use the button's **Upload New Sound** to upload and assign in one step.
+
+Changes take effect immediately for both the web buttons and the physical buttons. Use **▶ Play** to hear a sound on the device's speaker and **Delete** to remove sounds no button uses. Uploaded files are stored in the `audio/` folder of the checkout, up to 25 MB each.
+
 ### Supported Formats
 
-- MP3 (.mp3)
-- WAV (.wav)
-- OGG (.ogg)
-- FLAC (.flac)
-- M4A (.m4a)
+- MP3 (.mp3), WAV (.wav), OGG (.ogg) and FLAC (.flac) play as they are
+- M4A, AAC, OPUS, WMA, AIFF, AMR, CAF, WEBM, 3GP and MP4 audio are converted to MP3 when uploaded (requires `ffmpeg`, which `setup.sh` installs)
 
 ### Audio Configuration
 
 Each audio button can be configured with:
-- **GPIO Pin** - Physical button connection
-- **Audio File** - Full path to sound file
+- **GPIO Pin** - Physical button connection (changes apply after a restart)
+- **Sound** - Sound file from the library
 - **Name** - Display name for the button
 - **Volume** - Playback volume (0-100%)
 

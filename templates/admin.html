@@ -212,15 +212,88 @@
         button.test:hover { background-color: #4dabf5; }
         button.audio-test { background-color: #9c27b0; }
         button.audio-test:hover { background-color: #ba68c8; }
-        button.validate-audio {
-            background-color: #ff9800;
-            padding: 8px 12px;
-            font-size: 13px;
+        button.upload-sound {
+            background-color: #607d8b;
+            padding: 10px 15px;
+            font-size: 14px;
             width: auto;
             margin-top: 0;
         }
-        button.validate-audio:hover { background-color: #ffa726; }
-        
+        button.upload-sound:hover { background-color: #78909c; }
+        select.sound-select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #555;
+            border-radius: 4px;
+            box-sizing: border-box;
+            background-color: #333;
+            color: #e0e0e0;
+            font-size: 16px;
+        }
+
+        /* Sound library */
+        .upload-zone {
+            display: block;
+            padding: 25px 15px;
+            margin: 15px 0;
+            border: 2px dashed #9c27b0;
+            border-radius: 8px;
+            text-align: center;
+            color: #bbb;
+            cursor: pointer;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            background-color: #3a2a3e;
+            color: #e0e0e0;
+        }
+        .upload-zone strong {
+            color: #ce93d8;
+        }
+        .upload-progress {
+            min-height: 1.6em;
+            font-size: 14px;
+            color: #ce93d8;
+        }
+        .sound-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid #444;
+        }
+        .sound-row:last-child {
+            border-bottom: none;
+        }
+        .sound-info {
+            flex: 1 1 200px;
+            min-width: 0;
+        }
+        .sound-file {
+            font-family: monospace;
+            word-break: break-all;
+        }
+        .sound-meta {
+            font-size: 12px;
+            color: #999;
+        }
+        .sound-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .sound-row button {
+            width: auto;
+            margin-top: 0;
+            padding: 8px 12px;
+            font-size: 13px;
+        }
+        button.delete-sound { background-color: #f44336; }
+        button.delete-sound:hover { background-color: #e57373; }
+        button.delete-sound:disabled, button.delete-sound:disabled:hover {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
         /* --- Other Styles --- */
         .logs {
             background-color: #1a1a1a;
@@ -241,8 +314,17 @@
             color: #2196F3;
             text-decoration: none;
         }
+        /* Shown on top of whichever tab is open */
         #configStatus {
-            margin-top: 15px;
+            position: fixed;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: calc(100% - 30px);
+            max-width: 600px;
+            box-sizing: border-box;
+            z-index: 1000;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
             padding: 12px;
             border-radius: 4px;
             text-align: center;
@@ -386,6 +468,7 @@
 </head>
 <body>
     <div class="container">
+        <div id="configStatus"></div>
         <div class="back-link">
             <a href="/">← Back to Control Panel</a>
         </div>
@@ -423,11 +506,11 @@
         
         <div class="tab-container">
             <div class="tab-buttons">
-                <button class="tab-button active" onclick="showTab('relays')">Relays</button>
-                <button class="tab-button" onclick="showTab('buttons')">Physical Buttons</button>
-                <button class="tab-button" onclick="showTab('audio')">Audio Buttons</button>
-                <button class="tab-button" onclick="showTab('system')">System</button>
-                <button class="tab-button" onclick="showTab('logs')">Logs</button>
+                <button class="tab-button active" data-tab="relays" onclick="showTab('relays')">Relays</button>
+                <button class="tab-button" data-tab="buttons" onclick="showTab('buttons')">Physical Buttons</button>
+                <button class="tab-button" data-tab="audio" onclick="showTab('audio')">Sounds</button>
+                <button class="tab-button" data-tab="system" onclick="showTab('system')">System</button>
+                <button class="tab-button" data-tab="logs" onclick="showTab('logs')">Logs</button>
             </div>
             
             <!-- Relay Configuration Tab -->
@@ -474,7 +557,6 @@
                         </div>
                         <button onclick="saveRelaySettings()">Save Relay Settings</button>
                     </div>
-                    <div id="configStatus"></div>
                 </div>
             </div>
             
@@ -560,16 +642,30 @@
             <!-- Audio Buttons Tab -->
             <div id="audio-tab" class="tab-content">
                 <div class="section">
+                    <h2>Sound Library</h2>
+                    <div class="info-box" id="soundFormatsInfo">
+                        Upload sound files from your computer or phone, then pick one for each audio button below.
+                    </div>
+                    <label class="upload-zone" id="uploadZone" for="libraryUpload">
+                        <strong>Choose sound files</strong> or drag them here
+                    </label>
+                    <input type="file" id="libraryUpload" accept="audio/*,.mp3,.wav,.ogg,.flac,.m4a,.aac,.opus,.wma,.aif,.aiff,.amr,.caf,.webm,.3gp,.mp4" multiple hidden>
+                    <input type="file" id="buttonUpload" accept="audio/*,.mp3,.wav,.ogg,.flac,.m4a,.aac,.opus,.wma,.aif,.aiff,.amr,.caf,.webm,.3gp,.mp4" hidden>
+                    <div class="upload-progress" id="uploadProgress"></div>
+                    <div id="soundLibrary">Loading sounds...</div>
+                </div>
+
+                <div class="section">
                     <h2>Audio Button Settings</h2>
                     <div class="checkbox-label">
                         <input type="checkbox" id="audioEnabled"
                                {% if config.audio_buttons.enabled %}checked{% endif %}>
                         <label for="audioEnabled">Enable Audio Buttons</label>
                     </div>
-                    
+
                     <div class="info-box">
-                        Configure up to 7 audio playback buttons. Each button can play a different sound file.
-                        <br>Supported formats: MP3, WAV, OGG, FLAC, M4A
+                        Configure up to 7 audio playback buttons. Each button can play a different sound.
+                        Choosing or uploading a sound takes effect immediately.
                         <br><span class="warning-text">Note: GPIO 2 and 3 have built-in pull-up resistors (I2C pins)</span>
                     </div>
                     
@@ -601,14 +697,15 @@
                                 {% endif %}
                             </div>
                             <div class="audio-config">
-                                <label for="audio{{ btn_num }}_file">Audio File:</label>
-                                <input type="text" id="audio{{ btn_num }}_file" 
-                                       value="{{ btn_config.get('audio_file', '') }}" 
-                                       class="file-path-input" 
-                                       placeholder="/home/tech/8-relay/audio/sound{{ btn_num }}.mp3">
+                                <label for="audio{{ btn_num }}_file">Sound:</label>
+                                <select id="audio{{ btn_num }}_file" class="sound-select"
+                                        data-current="{{ btn_config.get('audio_file', '') }}"
+                                        onchange="assignSound({{ btn_num }})">
+                                    <option value="{{ btn_config.get('audio_file', '') }}">{{ btn_config.get('audio_file', '') }}</option>
+                                </select>
                             </div>
-                            <div class="audio-config" style="display: flex; gap: 10px; align-items: center;">
-                                <button class="validate-audio" onclick="validateAudioFile({{ btn_num }})">Validate</button>
+                            <div class="audio-config" style="display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; align-items: center;">
+                                <button class="upload-sound" onclick="uploadForButton({{ btn_num }})">Upload New Sound</button>
                                 <button class="audio-test" onclick="testAudio({{ btn_num }})">Test Play</button>
                             </div>
                             <div class="audio-config">
@@ -696,12 +793,18 @@
                 tab.classList.remove('active');
             });
             document.querySelectorAll('.tab-button').forEach(btn => {
-                btn.classList.remove('active');
+                btn.classList.toggle('active', btn.dataset.tab === tabName);
             });
-            
-            // Show selected tab
+
+            // Show selected tab, and remember it in the URL (e.g. /admin#audio)
             document.getElementById(tabName + '-tab').classList.add('active');
-            event.target.classList.add('active');
+            history.replaceState(null, '', '#' + tabName);
+        }
+
+        // Open the tab named in the URL
+        const tabFromHash = location.hash.slice(1);
+        if (tabFromHash && document.getElementById(tabFromHash + '-tab')) {
+            showTab(tabFromHash);
         }
         
         // Toggle between single and multi button modes
@@ -925,9 +1028,9 @@
             })
             .then(response => response.json())
             .then(data => {
-                showStatus(data.status === 'success' ? 'Audio settings saved! Restart service to apply.' : data.message || 'Error saving settings', data.status);
+                showStatus(data.message || 'Error saving settings', data.status);
                 if (data.status === 'success') {
-                    updateAudioStatuses();
+                    refreshAudioViews();
                 }
             })
             .catch(error => {
@@ -1015,49 +1118,274 @@
             });
         }
         
-        function validateAudioFile(buttonNum) {
-            const button = event.target;
-            const filePath = document.getElementById(`audio${buttonNum}_file`).value;
-            
-            if (!filePath) {
-                showStatus('Please enter a file path first', 'error');
+        // Sound library
+        let soundLibrary = {files: [], max_upload_mb: 25};
+        let pendingUploadButton = null;
+
+        function loadSoundLibrary() {
+            return fetch('/admin/audio/files')
+                .then(response => response.json())
+                .then(data => {
+                    soundLibrary = data;
+                    renderSoundLibrary();
+                    populateSoundSelects();
+                    updateFormatsInfo();
+                })
+                .catch(error => {
+                    document.getElementById('soundLibrary').textContent = 'Could not load the sound library';
+                    console.error('Error loading sound library:', error);
+                });
+        }
+
+        function refreshAudioViews() {
+            loadSoundLibrary();
+            updateAudioStatuses();
+        }
+
+        function audioButtonName(buttonNum) {
+            const nameEl = document.getElementById(`audio${buttonNum}_name`);
+            return (nameEl && nameEl.value) || `Audio Button ${buttonNum}`;
+        }
+
+        function updateFormatsInfo() {
+            const playable = (soundLibrary.playable_formats || []).map(f => f.toUpperCase()).join(', ');
+            let text = `Upload sound files from your computer or phone (up to ${soundLibrary.max_upload_mb} MB each), ` +
+                       `then pick one for each audio button below. ${playable} files play as they are`;
+            if ((soundLibrary.convertible_formats || []).length) {
+                text += '; other formats, such as M4A recordings from a phone, are converted to MP3 automatically.';
+            } else {
+                text += '.';
+            }
+            document.getElementById('soundFormatsInfo').textContent = text;
+        }
+
+        function renderSoundLibrary() {
+            const container = document.getElementById('soundLibrary');
+            container.innerHTML = '';
+            if (!soundLibrary.files.length) {
+                container.textContent = 'No sounds yet. Upload one above.';
                 return;
             }
-            
-            button.disabled = true;
-            button.textContent = 'Checking...';
-            
-            fetch('/admin/validate_audio', {
+
+            soundLibrary.files.forEach(file => {
+                const row = document.createElement('div');
+                row.className = 'sound-row';
+
+                const info = document.createElement('div');
+                info.className = 'sound-info';
+                const fileName = document.createElement('div');
+                fileName.className = 'sound-file';
+                fileName.textContent = file.name;
+                const meta = document.createElement('div');
+                meta.className = 'sound-meta';
+                const size = file.size < 1024 * 1024
+                    ? `${Math.max(1, Math.round(file.size / 1024))} KB`
+                    : `${file.size_mb} MB`;
+                const usedBy = file.used_by.map(audioButtonName).join(', ');
+                meta.textContent = `${size} · ${usedBy ? 'Used by ' + usedBy : 'Not assigned to a button'}`;
+                info.append(fileName, meta);
+
+                const play = document.createElement('button');
+                play.className = 'audio-test';
+                play.textContent = '▶ Play';
+                play.title = 'Play on the device speaker';
+                play.onclick = () => playLibrarySound(file.name, play);
+
+                const remove = document.createElement('button');
+                remove.className = 'delete-sound';
+                remove.textContent = 'Delete';
+                if (file.used_by.length) {
+                    remove.disabled = true;
+                    remove.title = 'Choose another sound for the buttons using this one first';
+                }
+                remove.onclick = () => deleteLibrarySound(file.name);
+
+                const actions = document.createElement('div');
+                actions.className = 'sound-actions';
+                actions.append(play, remove);
+                row.append(info, actions);
+                container.appendChild(row);
+            });
+        }
+
+        // Fill each audio button's sound picker with the library
+        function populateSoundSelects() {
+            for (let i = 1; i <= 7; i++) {
+                const select = document.getElementById(`audio${i}_file`);
+                if (!select) continue;
+
+                const current = select.dataset.current || '';
+                let found = false;
+                select.innerHTML = '';
+                soundLibrary.files.forEach(file => {
+                    const option = new Option(file.name, file.path);
+                    option.dataset.name = file.name;
+                    if (file.used_by.includes(i)) {
+                        option.selected = true;
+                        found = true;
+                    }
+                    select.add(option);
+                });
+
+                if (!found) {
+                    // No sound chosen yet, or a file outside the library
+                    const label = current ? `${current.split('/').pop()} (not in sound library)` : '— Choose a sound —';
+                    const option = new Option(label, current, true, true);
+                    option.title = current;
+                    select.add(option, 0);
+                }
+            }
+        }
+
+        function assignSound(buttonNum) {
+            const select = document.getElementById(`audio${buttonNum}_file`);
+            const option = select.selectedOptions[0];
+            if (!option || !option.dataset.name) return;  // Not a library sound
+
+            fetch('/admin/audio/assign', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({filepath: filePath})
+                body: JSON.stringify({button: buttonNum, file: option.dataset.name})
             })
             .then(response => response.json())
             .then(data => {
-                button.disabled = false;
-                button.textContent = 'Validate';
-                
-                const statusIndicator = document.getElementById(`audioStatus${buttonNum}`);
-                const statusText = document.getElementById(`audioStatusText${buttonNum}`);
-                
-                if (data.valid) {
-                    statusIndicator.classList.remove('invalid');
-                    statusText.textContent = `Valid (${data.file_info.size_mb}MB)`;
-                    showStatus(`Audio file is valid: ${data.file_info.extension} format, ${data.file_info.size_mb}MB`, 'success');
-                } else {
-                    statusIndicator.classList.add('invalid');
-                    statusText.textContent = 'Invalid file';
-                    showStatus('Audio file is invalid or not found', 'error');
+                showStatus(data.message || 'Error choosing sound', data.status);
+                if (data.status === 'success') {
+                    select.dataset.current = select.value;
                 }
+                refreshAudioViews();
             })
             .catch(error => {
-                button.disabled = false;
-                button.textContent = 'Validate';
-                showStatus('Error validating audio file', 'error');
+                showStatus('Error choosing sound', 'error');
+                console.error(error);
+                refreshAudioViews();
+            });
+        }
+
+        function uploadSoundFile(file, buttonNum) {
+            return new Promise(resolve => {
+                const maxMb = soundLibrary.max_upload_mb || 25;
+                if (file.size > maxMb * 1024 * 1024) {
+                    resolve({status: 'error', message: `${file.name} is too large (max ${maxMb} MB)`});
+                    return;
+                }
+
+                const progress = document.getElementById('uploadProgress');
+                const form = new FormData();
+                form.append('file', file);
+                if (buttonNum) {
+                    form.append('button', buttonNum);
+                }
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/admin/audio/upload');
+                xhr.upload.onprogress = event => {
+                    if (event.lengthComputable) {
+                        const percent = Math.round(event.loaded / event.total * 100);
+                        progress.textContent = percent < 100
+                            ? `Uploading ${file.name}... ${percent}%`
+                            : `Processing ${file.name}...`;
+                    }
+                };
+                xhr.onload = () => {
+                    try {
+                        resolve(JSON.parse(xhr.responseText));
+                    } catch (e) {
+                        resolve({status: 'error', message: `Upload of ${file.name} failed (HTTP ${xhr.status})`});
+                    }
+                };
+                xhr.onerror = () => resolve({status: 'error', message: `Upload of ${file.name} failed`});
+                progress.textContent = `Uploading ${file.name}...`;
+                xhr.send(form);
+            });
+        }
+
+        async function uploadSoundFiles(files, buttonNum) {
+            if (!files.length) return;
+
+            const results = [];
+            for (const file of files) {
+                results.push(await uploadSoundFile(file, buttonNum));
+            }
+            document.getElementById('uploadProgress').textContent = '';
+
+            const errors = results.filter(result => result.status !== 'success');
+            if (results.length === 1) {
+                showStatus(results[0].message || 'Upload failed', results[0].status);
+            } else if (errors.length) {
+                showStatus(errors.map(result => result.message).join(' · '), 'error');
+            } else {
+                showStatus(`Uploaded ${results.length} sounds`, 'success');
+            }
+            refreshAudioViews();
+        }
+
+        function uploadForButton(buttonNum) {
+            pendingUploadButton = buttonNum;
+            document.getElementById('buttonUpload').click();
+        }
+
+        function playLibrarySound(name, button) {
+            button.disabled = true;
+            fetch('/admin/audio/play', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({file: name})
+            })
+            .then(response => response.json())
+            .then(data => showStatus(data.message || 'Failed to play sound', data.status))
+            .catch(error => {
+                showStatus('Error playing sound', 'error');
+                console.error(error);
+            })
+            .finally(() => setTimeout(() => { button.disabled = false; }, 1000));
+        }
+
+        function deleteLibrarySound(name) {
+            if (!confirm(`Delete ${name}?`)) return;
+            fetch('/admin/audio/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({file: name})
+            })
+            .then(response => response.json())
+            .then(data => {
+                showStatus(data.message || 'Error deleting sound', data.status);
+                refreshAudioViews();
+            })
+            .catch(error => {
+                showStatus('Error deleting sound', 'error');
                 console.error(error);
             });
         }
-        
+
+        const libraryUpload = document.getElementById('libraryUpload');
+        libraryUpload.addEventListener('change', () => {
+            const files = Array.from(libraryUpload.files);
+            libraryUpload.value = '';
+            uploadSoundFiles(files, null);
+        });
+
+        const buttonUpload = document.getElementById('buttonUpload');
+        buttonUpload.addEventListener('change', () => {
+            const files = Array.from(buttonUpload.files);
+            buttonUpload.value = '';
+            uploadSoundFiles(files, pendingUploadButton);
+        });
+
+        const uploadZone = document.getElementById('uploadZone');
+        ['dragenter', 'dragover'].forEach(type => uploadZone.addEventListener(type, event => {
+            event.preventDefault();
+            uploadZone.classList.add('dragover');
+        }));
+        ['dragleave', 'drop'].forEach(type => uploadZone.addEventListener(type, event => {
+            event.preventDefault();
+            uploadZone.classList.remove('dragover');
+        }));
+        uploadZone.addEventListener('drop', event => {
+            uploadSoundFiles(Array.from(event.dataTransfer.files), null);
+        });
+
         function testAudio(buttonNum) {
             const button = event.target;
             button.disabled = true;
@@ -1085,12 +1413,14 @@
             });
         }
         
+        let statusTimer = null;
         function showStatus(message, type) {
             const statusDiv = document.getElementById('configStatus');
             statusDiv.className = type;
             statusDiv.textContent = message;
             statusDiv.style.display = 'block';
-            setTimeout(() => {
+            clearTimeout(statusTimer);
+            statusTimer = setTimeout(() => {
                 statusDiv.style.display = 'none';
             }, 5000);
         }
@@ -1145,6 +1475,7 @@
             refreshLogs();
             updateStats();
             updateAudioStatuses();
+            loadSoundLibrary();
         });
     </script>
 </body>

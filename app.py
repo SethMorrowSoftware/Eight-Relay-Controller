@@ -44,7 +44,9 @@ import subprocess
 import pygame
 import platform
 import shutil
+import tempfile
 from uuid import uuid4
+from werkzeug.utils import secure_filename
 
 # Configuration Management
 class Config:
@@ -523,6 +525,107 @@ def validate_audio_file(filepath):
         return False
 
 
+# Formats pygame can play directly
+PLAYABLE_AUDIO_EXTENSIONS = ('.mp3', '.wav', '.ogg', '.flac')
+# Formats converted to MP3 with ffmpeg when uploaded (phone recordings etc.)
+CONVERTIBLE_AUDIO_EXTENSIONS = (
+    '.m4a', '.aac', '.mp4', '.opus', '.webm', '.wma',
+    '.aif', '.aiff', '.amr', '.3gp', '.caf'
+)
+
+
+def audio_library_path(filename):
+    """
+    Get the path of a file in the audio library.
+
+    Args:
+        filename (str): Plain file name (no directories) of a playable sound
+
+    Returns:
+        str: Absolute path inside AUDIO_DIR, or None if the name is not allowed
+    """
+    if not filename or filename != os.path.basename(filename) or filename.startswith('.'):
+        return None
+    if not filename.lower().endswith(PLAYABLE_AUDIO_EXTENSIONS):
+        return None
+    return os.path.join(AUDIO_DIR, filename)
+
+
+def audio_buttons_using(filepath):
+    """Get the numbers of the audio buttons configured to play a file."""
+    target = os.path.realpath(filepath)
+    buttons = []
+    for btn_num in range(1, 8):
+        audio_file = getattr(config, f'AUDIO_BUTTON{btn_num}_CONFIG').get('audio_file')
+        if audio_file and os.path.realpath(audio_file) == target:
+            buttons.append(btn_num)
+    return buttons
+
+
+def list_audio_library():
+    """List the playable sound files in the audio library."""
+    files = []
+    if not os.path.isdir(AUDIO_DIR):
+        return files
+    for name in sorted(os.listdir(AUDIO_DIR), key=str.lower):
+        path = audio_library_path(name)
+        if not path or not os.path.isfile(path):
+            continue
+        size = os.path.getsize(path)
+        if size == 0:
+            continue  # Upload still in progress
+        files.append({
+            'name': name,
+            'path': path,
+            'size': size,
+            'size_mb': round(size / (1024 * 1024), 2),
+            'used_by': audio_buttons_using(path)
+        })
+    return files
+
+
+def reserve_audio_filename(stem, extension):
+    """
+    Create an empty file with an unused name in the audio library.
+
+    Uploads never overwrite an existing sound; a number is added instead
+    (doorbell.mp3, doorbell-2.mp3, ...).
+
+    Returns:
+        str: The reserved file name
+    """
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+    counter = 1
+    while True:
+        name = f"{stem}{extension}" if counter == 1 else f"{stem}-{counter}{extension}"
+        try:
+            with open(os.path.join(AUDIO_DIR, name), 'x'):
+                return name
+        except FileExistsError:
+            counter += 1
+
+
+def convert_to_mp3(source, destination):
+    """
+    Convert an audio file to MP3 with ffmpeg.
+
+    Returns:
+        str: Error message, or None on success
+    """
+    try:
+        result = subprocess.run(
+            ['ffmpeg', '-nostdin', '-loglevel', 'error', '-y', '-i', source,
+             '-vn', '-codec:a', 'libmp3lame', '-q:a', '2', destination],
+            capture_output=True, text=True, timeout=300
+        )
+    except subprocess.TimeoutExpired:
+        return 'Converting the file took too long'
+    if result.returncode != 0:
+        app.logger.error(f"ffmpeg could not convert {source}: {result.stderr.strip()}")
+        return 'The file could not be converted. Is it a valid audio file?'
+    return None
+
+
 def get_cpu_temperature():
     """Get CPU temperature in Celsius if available."""
     try:
@@ -611,6 +714,15 @@ def normalize_relay_number(value):
     except (TypeError, ValueError):
         return None
     return relay_num if relay_num in config.RELAY_PINS else None
+
+
+def normalize_audio_button(value):
+    """Normalize audio button number to int and ensure it is 1-7."""
+    try:
+        button_num = int(value)
+    except (TypeError, ValueError):
+        return None
+    return button_num if 1 <= button_num <= 7 else None
 
 
 def validate_duration_override(duration):
@@ -1078,6 +1190,12 @@ class ResetButtonHandler:
 # Global variables and initialization
 app = Flask(__name__)
 config = Config()
+
+# Audio library: sound files uploaded from the admin page are stored here
+AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'audio')
+MAX_AUDIO_UPLOAD_MB = 25
+app.config['MAX_CONTENT_LENGTH'] = MAX_AUDIO_UPLOAD_MB * 1024 * 1024
+
 relay_locks = {}
 active_triggers = 0
 active_triggers_lock = threading.Lock()
@@ -1096,6 +1214,7 @@ audio_button4_handler = None
 audio_button5_handler = None
 audio_button6_handler = None
 audio_button7_handler = None
+audio_buttons_lock = threading.Lock()  # Guards live changes to the handlers above
 
 stats_lock = threading.Lock()
 initialized_pins = []  # Track initialized pins for cleanup
@@ -1352,6 +1471,40 @@ def cleanup_partial_gpio(handlers_to_cleanup):
         GPIO.cleanup()
     except Exception as e:
         app.logger.error(f"Error in final GPIO cleanup: {e}")
+
+
+def refresh_audio_button(btn_num):
+    """
+    Apply an audio button's saved settings to its physical button.
+
+    The sound file, name and volume take effect immediately. GPIO pins are
+    only set up at startup, so pin changes still need a service restart.
+
+    Args:
+        btn_num (int): Audio button number (1-7)
+    """
+    btn_config = getattr(config, f'AUDIO_BUTTON{btn_num}_CONFIG')
+    handler_name = f'audio_button{btn_num}_handler'
+
+    with audio_buttons_lock:
+        handler = globals().get(handler_name)
+        if handler:
+            handler.audio_file = btn_config.get('audio_file')
+            handler.name = btn_config.get('name', handler.name)
+            handler.volume = btn_config.get('volume', handler.volume)
+            return
+
+        # The button was skipped at startup because its sound file was missing;
+        # start it now that it has one
+        if (config.AUDIO_BUTTONS_ENABLED and audio_player and audio_player.initialized
+                and btn_config.get('pin') and validate_audio_file(btn_config.get('audio_file'))):
+            try:
+                handler = AudioButtonHandler(btn_config, audio_player, f"Audio Button {btn_num}")
+                handler.setup()
+                globals()[handler_name] = handler
+                initialized_pins.append(btn_config.get('pin'))
+            except Exception as e:
+                app.logger.error(f"Failed to start Audio Button {btn_num}: {e}")
 
 
 def trigger_relay(relay_num, duration_override=None):
@@ -1980,6 +2133,14 @@ def admin_config():
             
             if section and settings and config.update_config(section, settings):
                 app.logger.info(f"Configuration updated: {section}")
+                if section == 'audio_buttons':
+                    for btn_num in range(1, 8):
+                        refresh_audio_button(btn_num)
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'Audio settings saved. Sounds, names and volumes are live; '
+                                   'GPIO pin changes apply after a restart.'
+                    })
                 return jsonify({'status': 'success', 'message': 'Configuration updated. Restart service to apply changes.'})
             return jsonify({'status': 'error', 'message': 'Invalid request'}), 400
         except Exception as e:
@@ -2041,7 +2202,207 @@ def admin_validate_audio():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+def assign_audio_file(button_num, filepath):
+    """Make an audio button play a file, effective immediately."""
+    if not config.update_config('audio_buttons', {f'button{button_num}': {'audio_file': filepath}}):
+        return False
+    refresh_audio_button(button_num)
+    app.logger.info(f"Audio Button {button_num} now plays {filepath}")
+    return True
+
+
+@app.route('/admin/audio/files')
+def admin_audio_files():
+    """
+    List the sound files in the audio library.
+
+    Returns:
+        JSON response with the files, which buttons use them and upload limits
+    """
+    ffmpeg_available = shutil.which('ffmpeg') is not None
+    return jsonify({
+        'status': 'success',
+        'files': list_audio_library(),
+        'audio_dir': AUDIO_DIR,
+        'max_upload_mb': MAX_AUDIO_UPLOAD_MB,
+        'playable_formats': [ext[1:] for ext in PLAYABLE_AUDIO_EXTENSIONS],
+        'convertible_formats': [ext[1:] for ext in CONVERTIBLE_AUDIO_EXTENSIONS] if ffmpeg_available else []
+    })
+
+
+@app.route('/admin/audio/upload', methods=['POST'])
+def admin_audio_upload():
+    """
+    Upload a sound file to the audio library.
+
+    Form fields:
+        file: The sound file. Formats pygame can't play are converted to MP3.
+        button (optional): Audio button number (1-7) to assign the sound to
+
+    Returns:
+        JSON response with the stored file
+    """
+    upload = request.files.get('file')
+    if not upload or not upload.filename:
+        return jsonify({'status': 'error', 'message': 'No file was uploaded'}), 400
+
+    button_num = None
+    if request.form.get('button'):
+        button_num = normalize_audio_button(request.form.get('button'))
+        if button_num is None:
+            return jsonify({'status': 'error', 'message': 'Invalid audio button number'}), 400
+
+    original_stem, extension = os.path.splitext(upload.filename)
+    extension = extension.lower()
+    stem = secure_filename(original_stem)[:100] or 'sound'
+
+    if extension in PLAYABLE_AUDIO_EXTENSIONS:
+        convert = False
+    elif extension in CONVERTIBLE_AUDIO_EXTENSIONS:
+        if not shutil.which('ffmpeg'):
+            return jsonify({
+                'status': 'error',
+                'message': f'{extension[1:].upper()} files need ffmpeg to be converted '
+                           '(sudo apt install ffmpeg). Upload MP3, WAV, OGG or FLAC instead.'
+            }), 400
+        convert = True
+    else:
+        return jsonify({
+            'status': 'error',
+            'message': f'Unsupported file type "{extension or upload.filename}". '
+                       'Upload an MP3, WAV, OGG or FLAC file.'
+        }), 400
+
+    filepath = None
+    try:
+        filename = reserve_audio_filename(stem, '.mp3' if convert else extension)
+        filepath = os.path.join(AUDIO_DIR, filename)
+        if convert:
+            fd, temp_path = tempfile.mkstemp(suffix=extension)
+            os.close(fd)
+            try:
+                upload.save(temp_path)
+                error = convert_to_mp3(temp_path, filepath)
+            finally:
+                os.remove(temp_path)
+            if error:
+                os.remove(filepath)
+                return jsonify({'status': 'error', 'message': error}), 400
+        else:
+            upload.save(filepath)
+
+        if os.path.getsize(filepath) == 0:
+            os.remove(filepath)
+            return jsonify({'status': 'error', 'message': 'The uploaded file is empty'}), 400
+    except Exception as e:
+        app.logger.error(f"Error saving uploaded audio file {upload.filename}: {e}")
+        if filepath and os.path.exists(filepath):
+            os.remove(filepath)
+        return jsonify({'status': 'error', 'message': f'Could not save the file: {e}'}), 500
+
+    app.logger.info(f"Uploaded audio file {filename}" + (" (converted to MP3)" if convert else ""))
+    message = f'Uploaded {filename}' + (' (converted to MP3)' if convert else '')
+
+    if button_num is not None:
+        if not assign_audio_file(button_num, filepath):
+            return jsonify({'status': 'error', 'message': f'{message}, but it could not be assigned'}), 500
+        button_name = getattr(config, f'AUDIO_BUTTON{button_num}_CONFIG').get('name', f'Audio Button {button_num}')
+        message += f' and assigned it to {button_name}'
+
+    return jsonify({
+        'status': 'success',
+        'message': message,
+        'file': {'name': filename, 'path': filepath, 'converted': convert},
+        'button': button_num
+    })
+
+
+@app.route('/admin/audio/assign', methods=['POST'])
+def admin_audio_assign():
+    """
+    Assign a sound from the audio library to an audio button.
+
+    JSON body:
+        {"button": 1, "file": "doorbell.mp3"}
+    """
+    data = request.json or {}
+    button_num = normalize_audio_button(data.get('button'))
+    if button_num is None:
+        return jsonify({'status': 'error', 'message': 'Invalid audio button number'}), 400
+
+    filepath = audio_library_path(data.get('file'))
+    if not filepath or not validate_audio_file(filepath):
+        return jsonify({'status': 'error', 'message': 'Sound file not found in the library'}), 404
+
+    if not assign_audio_file(button_num, filepath):
+        return jsonify({'status': 'error', 'message': 'Could not save the configuration'}), 500
+
+    button_name = getattr(config, f'AUDIO_BUTTON{button_num}_CONFIG').get('name', f'Audio Button {button_num}')
+    return jsonify({'status': 'success', 'message': f'{button_name} now plays {data.get("file")}'})
+
+
+@app.route('/admin/audio/play', methods=['POST'])
+def admin_audio_play():
+    """
+    Play a sound from the audio library on the device's speaker.
+
+    JSON body:
+        {"file": "doorbell.mp3"}
+    """
+    data = request.json or {}
+    filepath = audio_library_path(data.get('file'))
+    if not filepath or not validate_audio_file(filepath):
+        return jsonify({'status': 'error', 'message': 'Sound file not found in the library'}), 404
+
+    if not (audio_player and audio_player.initialized):
+        return jsonify({'status': 'error', 'message': 'Audio system not initialized'}), 500
+    if not audio_player.play_sound(filepath, 80):
+        return jsonify({'status': 'error', 'message': 'Failed to play audio'}), 500
+    return jsonify({'status': 'success', 'message': f'Playing {data.get("file")}'})
+
+
+@app.route('/admin/audio/delete', methods=['POST'])
+def admin_audio_delete():
+    """
+    Delete a sound from the audio library.
+
+    Sounds still assigned to a button are not deleted.
+
+    JSON body:
+        {"file": "doorbell.mp3"}
+    """
+    data = request.json or {}
+    filepath = audio_library_path(data.get('file'))
+    if not filepath or not os.path.isfile(filepath):
+        return jsonify({'status': 'error', 'message': 'Sound file not found in the library'}), 404
+
+    used_by = audio_buttons_using(filepath)
+    if used_by:
+        names = ', '.join(
+            getattr(config, f'AUDIO_BUTTON{n}_CONFIG').get('name', f'Audio Button {n}') for n in used_by
+        )
+        return jsonify({
+            'status': 'error',
+            'message': f'{data.get("file")} is used by {names}. Choose another sound for it first.'
+        }), 409
+
+    try:
+        os.remove(filepath)
+    except Exception as e:
+        app.logger.error(f"Error deleting audio file {filepath}: {e}")
+        return jsonify({'status': 'error', 'message': f'Could not delete the file: {e}'}), 500
+
+    app.logger.info(f"Deleted audio file {data.get('file')}")
+    return jsonify({'status': 'success', 'message': f'Deleted {data.get("file")}'})
+
+
 # Error handlers
+@app.errorhandler(413)
+def request_too_large(error):
+    """Handle uploads over the size limit."""
+    return jsonify({'status': 'error', 'message': f'File is too large (max {MAX_AUDIO_UPLOAD_MB} MB)'}), 413
+
+
 @app.errorhandler(404)
 def not_found(error):
     """Handle 404 errors."""
