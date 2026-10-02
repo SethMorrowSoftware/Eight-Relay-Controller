@@ -1,0 +1,25 @@
+# Created by setup.sh
+venv/
+start.sh
+stop.sh
+logs.sh
+test_system.py
+test_gpio.py
+test_audio.py
+audio/doorbell.mp3
+audio/notification.mp3
+audio/chime.mp3
+audio/alert.mp3
+audio/melody.mp3
+audio/warning.mp3
+audio/success.mp3
+audio/doorbell_chime.wav
+audio/notification_beep.wav
+audio/alert_tone.wav
+
+# Python
+__pycache__/
+*.pyc
+
+# lgpio notification pipes (Raspberry Pi 5)
+.lgd-nfy*

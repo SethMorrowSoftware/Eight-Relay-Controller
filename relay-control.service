@@ -1,35 +1,39 @@
+# Reference copy for manual installs. setup.sh writes
+# /etc/systemd/system/relay-control.service with the user and paths of your
+# checkout; edit User, Group and the paths below if you install by hand.
 [Unit]
 Description=8-Relay Control Web Service
-After=network.target
+After=network.target sound.target
 
 [Service]
 Type=simple
 User=tech
-Group=gpio
+Group=tech
+# GPIO and audio permissions
+SupplementaryGroups=gpio audio
 WorkingDirectory=/home/tech/8-relay
-# The ExecStart line now uses gunicorn for a more robust production server
-ExecStart=/home/tech/8-relay/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:5000 app:app
+# Run app.py directly: its main() sets up GPIO, buttons and audio, which
+# gunicorn (app:app) would skip
+ExecStart=/home/tech/8-relay/venv/bin/python /home/tech/8-relay/app.py
+Environment=PYTHONUNBUFFERED=1
 Restart=always
 RestartSec=10
 
-# Security settings from the more robust service file
+# Security settings
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 # Grant write access to necessary directories
 ReadWritePaths=/var/log/relay_control /home/tech/8-relay
 
-# Resource limits from the more robust service file
+# Resource limits
 CPUQuota=50%
-MemoryLimit=256M
+MemoryMax=256M
 
 # Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=relay-control
-
-# Audio permissions
-SupplementaryGroups=audio
 
 [Install]
 WantedBy=multi-user.target
