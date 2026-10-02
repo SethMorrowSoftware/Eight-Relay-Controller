@@ -437,6 +437,9 @@ server {
     add_header X-Frame-Options DENY;
     add_header X-XSS-Protection "1; mode=block";
 
+    # Sound file uploads from the admin page (the app allows up to 25 MB)
+    client_max_body_size 26M;
+
     location / {
         proxy_pass http://127.0.0.1:5000;
         proxy_set_header Host $host;
@@ -449,10 +452,11 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
 
-        # Timeouts
+        # Timeouts (uploads in formats like M4A are converted to MP3, which
+        # can take a while on slower Pis)
         proxy_connect_timeout 60s;
         proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        proxy_read_timeout 300s;
     }
 }
 EOF
